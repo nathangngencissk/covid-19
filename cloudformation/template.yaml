@@ -1,0 +1,221 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Covid-19 tracking"
+
+Globals:
+  Function:
+    CodeUri: "../app/"
+    Runtime: "python3.7"
+    MemorySize: 256
+    Timeout: 150
+
+Resources:
+  # Roles
+  LambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+                - "cloudwatch.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: "Cloudwatch"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "cloudwatch:PutMetricData"
+                  - "cloudwatch:GetMetricWidgetImage"
+                  - "logs:DescribeLogStreams"
+                Resource: "*"
+        - PolicyName: "S3"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                Resource: "*"
+
+  SaveToDynamoRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+                - "cloudwatch.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: "Cloudwatch"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "cloudwatch:PutMetricData"
+                  - "cloudwatch:GetMetricWidgetImage"
+                  - "logs:DescribeLogStreams"
+                Resource: "*"
+        - PolicyName: "S3"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                Resource: "*"
+        - PolicyName: "DynamoDB"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "dynamodb:BatchGet*"
+                  - "dynamodb:DescribeStream"
+                  - "dynamodb:DescribeTable"
+                  - "dynamodb:Get*"
+                  - "dynamodb:Query"
+                  - "dynamodb:Scan"
+                  - "dynamodb:BatchWrite*"
+                  - "dynamodb:CreateTable"
+                  - "dynamodb:Delete*"
+                  - "dynamodb:Update*"
+                  - "dynamodb:PutItem"
+                Resource: "arn:aws:dynamodb:*:*:table/covid19"
+
+  APIFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+                - "cloudwatch.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: "Cloudwatch"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "cloudwatch:PutMetricData"
+                  - "cloudwatch:GetMetricWidgetImage"
+                  - "logs:DescribeLogStreams"
+                Resource: "*"
+        - PolicyName: "DynamoDB"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "dynamodb:BatchGet*"
+                  - "dynamodb:DescribeStream"
+                  - "dynamodb:DescribeTable"
+                  - "dynamodb:Get*"
+                  - "dynamodb:Query"
+                  - "dynamodb:Scan"
+                  - "dynamodb:BatchWrite*"
+                  - "dynamodb:CreateTable"
+                  - "dynamodb:Delete*"
+                  - "dynamodb:Update*"
+                  - "dynamodb:PutItem"
+                Resource: "arn:aws:dynamodb:*:*:table/covid19"
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: "TransformationFunction"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - "ScheduledRule"
+          - "Arn"
+
+  # Resources
+  RecordsBucket:
+    Type: AWS::S3::Bucket
+
+  DynamoTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: covid19
+
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "ScheduledRule"
+      ScheduleExpression: "cron(0 4 * * ? *)"
+      State: "ENABLED"
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - "TransformationFunction"
+              - "Arn"
+          Id: "TargetFunctionV1"
+
+  TransformationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: "data_processing.handle"
+      Description: "Create parquet file"
+      Role: !GetAtt LambdaRole.Arn
+      Environment:
+        Variables:
+          s3_bucket: !Ref RecordsBucket
+
+  SaveToDynamoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: "parquet_to_dynamo.handle"
+      Description: "Insert parquet infos in dynamo"
+      Role: !GetAtt SaveToDynamoRole.Arn
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref RecordsBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: parquet.gz
+
+  APIServeFunction:
+    Type: "AWS::Serverless::Function"
+    Properties:
+      Handler: "api_serve.handle"
+      Role: !GetAtt APIFunctionRole.Arn
+      Events:
+        Covid19GetAll:
+          Type: Api
+          Properties:
+            Path: /covid19
+            Method: get
