@@ -21,6 +21,11 @@ def handle(event, context):
     
     return {
         "statusCode": 200,
+        "headers": {
+            "Access-Control-Allow-Origin": "https://d3gdzw78a0j76y.cloudfront.net",
+            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
+        },
         "body": json.dumps({
             'items': items
         }, default=default)

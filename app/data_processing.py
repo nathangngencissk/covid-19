@@ -12,9 +12,18 @@ def handle(event, context):
         '/tmp/output.ipynb'
     )
 
-    s3_bucket = os.environ['s3_bucket']
-    bucket = boto3.resource('s3').Bucket(s3_bucket)
-    bucket.upload_file(
+    s3_bucket_url = os.environ['s3_bucket']
+    website_bucket_url= os.environ['website_bucket']
+    
+    s3_bucket = boto3.resource('s3').Bucket(s3_bucket_url)
+    s3_bucket.upload_file(
         Key='latest_report.parquet.gz',
         Filename='/tmp/latest_report.parquet.gz'
+    )
+    
+    website_bucket = boto3.resource('s3').Bucket(website_bucket_url)
+    website_bucket.upload_file(
+        Key='latest_report.csv',
+        Filename='/tmp/latest_report.csv', 
+        ExtraArgs={'ACL':'public-read'}
     )

@@ -1,3 +1,6 @@
 reports/
 .ipynb_checkpoints/
 *.csv
+.aws-sam/
+.vscode/
+samconfig.toml
